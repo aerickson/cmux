@@ -158,6 +158,25 @@ struct WorkspaceCoordinatorTests {
     }
 
     @Test
+    func canMoveTabsToTierBoundariesIsFalseForTheFirstAndLastWorkspaceInEachPinTier() {
+        let (model, _, _, reorder) = makeWorld()
+        let pinnedA = CoordinatorStubTab(isPinned: true)
+        let pinnedB = CoordinatorStubTab(isPinned: true)
+        let plainA = CoordinatorStubTab()
+        let plainB = CoordinatorStubTab()
+        model.tabs = [pinnedA, pinnedB, plainA, plainB]
+
+        #expect(!reorder.canMoveTabsToTop([pinnedA.id]))
+        #expect(!reorder.canMoveTabsToTop([plainA.id]))
+        #expect(reorder.canMoveTabsToTop([pinnedB.id]))
+        #expect(reorder.canMoveTabsToTop([plainB.id]))
+        #expect(reorder.canMoveTabsToBottom([pinnedA.id]))
+        #expect(reorder.canMoveTabsToBottom([plainA.id]))
+        #expect(!reorder.canMoveTabsToBottom([pinnedB.id]))
+        #expect(!reorder.canMoveTabsToBottom([plainB.id]))
+    }
+
+    @Test
     func moveTabsToBottomMovesAGroupedSelectionWithItsAnchor() throws {
         let (model, host, groups, reorder) = makeWorld()
         _ = host
@@ -181,6 +200,8 @@ struct WorkspaceCoordinatorTests {
             groupedSecond.id,
             groupedFirst.id,
         ])
+        #expect(!reorder.canMoveTabsToBottom([groupedSecond.id]))
+        #expect(reorder.canMoveTabsToTop([groupedSecond.id]))
     }
 
     @Test
