@@ -6,7 +6,7 @@ import SwiftUI
 
 /// The Finder-like Cloud tree over the surface catalog: This Mac (local
 /// workspaces → terminals; Browsers) then every machine (Workspaces → cmux-tui
-/// workspace → terminals; Ports; Displays; Terminals), as an `NSOutlineView`. Rows are pure
+/// workspace → terminals; Ports; VNC Displays; Terminals), as an `NSOutlineView`. Rows are pure
 /// display (`CloudTreeRowContentView`); the coordinator owns selection,
 /// expansion, clicks, context menus, keyboard navigation, and the native
 /// drag whose drop projects the row as a pane in the main view.
@@ -16,8 +16,6 @@ struct CloudTreeOutlineView: NSViewRepresentable {
     var pendingCreates: [MachineCreateOperation] = []
     let snapshot: SurfaceCatalogSnapshot
     let localWorkspaces: [CloudTreeLocalWorkspace]
-    /// Machine id to terminal ids with a notification this Mac has not read.
-    var unreadTerminalIDs: [String: Set<String>] = [:]
     let machineActions: MachineRowActions
     let nodeActions: CloudTreeNodeActions
     let expansionStore: CloudTreeExpansionStore
@@ -29,16 +27,6 @@ struct CloudTreeOutlineView: NSViewRepresentable {
     var onDragStateChange: @MainActor (Bool) -> Void = { _ in }
     @Environment(\.tabDragTransferRegistry) private var tabDragTransferRegistry
     @Environment(\.colorScheme) private var colorScheme
-
-    /// A terminal rename needs a stable daemon tab placement. A terminal row
-    /// with only a legacy workspace hint is not enough, because the same
-    /// terminal can have zero or many tab placements.
-    static func canRenameTerminal(
-        resource: SurfaceResource,
-        remoteView: SurfaceRemoteView?
-    ) -> Bool {
-        remoteView != nil || resource.remoteViews?.isEmpty == false
-    }
 
     func makeCoordinator() -> Coordinator {
         Coordinator(
@@ -67,8 +55,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             machines: machines,
             pendingCreates: pendingCreates,
             snapshot: snapshot,
-            localWorkspaces: localWorkspaces,
-            unreadTerminalIDs: unreadTerminalIDs
+            localWorkspaces: localWorkspaces
         ))
     }
 
@@ -251,13 +238,6 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             }
             let nextStructure = CloudTreeNodeBuilder.structureSignature(nodes)
             let nextContent = CloudTreeNodeBuilder.contentSignature(nodes)
-            #if DEBUG
-            let unreadRows = CloudTreeNodeBuilder.flattened(nodes).filter {
-                if case .terminal(let row) = $0.kind { return row.hasUnreadNotification }
-                return false
-            }.count
-            cmuxDebugLog("cloudTree.apply structureChanged=\(nextStructure != structureSignature) contentChanged=\(nextContent != contentSignature) unreadRows=\(unreadRows) rows=\(outlineView?.numberOfRows ?? -1)")
-            #endif
             guard nextStructure != structureSignature || nextContent != contentSignature else { return }
             contentSignature = nextContent
             if nextStructure == structureSignature, !self.nodes.isEmpty {
@@ -380,7 +360,6 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         func outlineViewItemDidExpand(_ notification: Notification) {
             guard !isUpdatingProgrammatically, let node = notification.userInfo?["NSObject"] as? CloudTreeNode else { return }
             expansionStore.setExpanded(true, node: node)
-            if node.kind.refreshesOnExpansion { nodeActions.refreshMachine(node.machine) }
         }
 
         func outlineViewItemDidCollapse(_ notification: Notification) {
@@ -437,7 +416,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 if !operation.isRunning {
                     machineActions.create.showFailure(operation.id)
                 }
-            case .workspace(let machine, let workspace, _, _, let openIn):
+            case .workspace(let machine, let workspace, _, let openIn):
                 // Open-or-focus (D13). Already showing in a local workspace -> go there
                 // instead of opening a second copy; a
                 // stray pane showing one of its terminals -> focus that pane.
@@ -447,60 +426,38 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 // menu own creation.
                 if let openIn {
                     nodeActions.selectLocalWorkspace(openIn)
-                } else if let shown = CloudTreeNodeBuilder.flattened(node.children).first(where: { child in
+                } else if let shown = node.children.first(where: { child in
                     if case .terminal(let row) = child.kind { return row.isOpen }
                     return false
                 }), case .terminal(let openRow) = shown.kind {
-                    if let view = openRow.remoteView {
-                        nodeActions.projectRemoteView(openRow.resource.id, view, .tab, true)
-                    } else {
-                        // A terminal opens as a tab, not a new column: it joins the
-                        // existing layout instead of widening it every time.
-                        nodeActions.project(openRow.resource.id, .tab, true)
-                    }
+                    // A terminal opens as a tab, not a new column: it joins the
+                    // existing layout instead of widening it every time.
+                    nodeActions.project(openRow.resource.id, .tab, true)
                 } else if let group = node.dragGroup, !group.isEmpty {
                     nodeActions.openGroupAsWorkspace(machine, group, workspace.id)
                 }
             case .localWorkspace(let row):
                 nodeActions.selectLocalWorkspace(row.workspaceID)
             case .terminal(let row):
-                if let view = row.remoteView {
-                    nodeActions.projectRemoteView(row.resource.id, view, .tab, true)
-                } else {
-                    // A terminal opens as a tab, not a new column: it joins the
-                    // existing layout instead of widening it every time.
-                    nodeActions.project(row.resource.id, .tab, true)
-                }
-            case .display(let resource, let openIn, let remoteView):
+                // A terminal opens as a tab, not a new column: it joins the
+                // existing layout instead of widening it every time.
+                nodeActions.project(row.resource.id, .tab, true)
+            case .display(let resource, let openIn):
                 // A workspace's Desktop row opens INSIDE the local workspace showing
                 // that remote workspace — never a jump to a VNC pane in a different
                 // workspace. Pool rows (openIn == nil) keep the global open-or-focus.
-                if let openIn {
-                    if let remoteView {
-                        nodeActions.projectRemoteViewInLocalWorkspace(resource.id, remoteView, openIn)
-                    } else {
-                        nodeActions.projectInLocalWorkspace(resource.id, openIn)
-                    }
-                } else if let remoteView {
-                    nodeActions.projectRemoteView(resource.id, remoteView, .split, true)
-                } else {
-                    nodeActions.project(resource.id, .split, true)
-                }
-            case .port(let resource, _, let openIn):
                 if let openIn {
                     nodeActions.projectInLocalWorkspace(resource.id, openIn)
                 } else {
                     nodeActions.project(resource.id, .split, true)
                 }
+            case .port(let resource, _):
+                nodeActions.project(resource.id, .split, true)
             case .browser(let row):
-                if let view = row.remoteView {
-                    nodeActions.projectRemoteView(row.resource.id, view, .split, true)
-                } else {
-                    nodeActions.project(row.resource.id, .split, true)
-                }
+                nodeActions.project(row.resource.id, .split, true)
             case .placeholder(let machineID, let placeholder):
                 // "Asleep — open to wake": a fresh terminal on the machine is what wakes it.
-                if placeholder.opensMachine, let machine = machine(id: machineID) {
+                if placeholder.style == .dimmed, let machine = machine(id: machineID) {
                     openMachine(machine)
                 }
             }
@@ -591,10 +548,6 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             for item in menuItems(for: node) {
                 menu.addItem(item)
             }
-            if let error = node.errorCopyText {
-                if !menu.items.isEmpty { menu.addItem(.separator()) }
-                menu.addItem(item(CloudErrorCopy.title) { CloudErrorCopy.copy(error) })
-            }
             #if DEBUG
             cmuxDebugLog("cloudTree.menu.build row=\(resolvedRow) items=\(menu.items.count)")
             #endif
@@ -617,8 +570,11 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                     item(String(localized: "cloudTree.menu.newTerminal", defaultValue: "New Terminal")) { [nodeActions] in nodeActions.newTerminal(machine, nil) },
                     item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { [nodeActions] in nodeActions.refresh() },
                 ]
-            case .displaysPool:
+            case .displaysPool(let machine, _):
                 return [
+                    item(String(localized: "machines.menu.openDesktop", defaultValue: "Open Desktop")) { [nodeActions] in
+                        nodeActions.project(SurfaceResourceID(machine: machine, kind: .display, key: SurfaceResourceID.desktopDisplayKey), .split, true)
+                    },
                     item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { [nodeActions] in nodeActions.refresh() },
                 ]
             case .workspacesGroup(let machine):
@@ -627,7 +583,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                     item(String(localized: "cloudTree.menu.newTerminal", defaultValue: "New Terminal")) { [nodeActions] in nodeActions.newTerminal(machine, nil) },
                     item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { [nodeActions] in nodeActions.refresh() },
                 ]
-            case .workspace(let machine, let workspace, _, _, let openIn):
+            case .workspace(let machine, let workspace, _, let openIn):
                 // One open verb, THE SAME PATH as a click and Return (`open`):
                 // jump to the local workspace already showing it (the verb says so),
                 // focus a stray pane showing one of its terminals, refuse an empty
@@ -657,58 +613,18 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 }
                 return items
             case .terminal(let row):
-                var items = resourceMenuItems(
-                    row.resource,
-                    isLocal: row.resource.machine.isLocal,
-                    openAction: { [weak self] in self?.open(node) },
-                    remoteView: row.remoteView
-                )
+                var items = resourceMenuItems(row.resource, isLocal: row.resource.machine.isLocal)
                 if !row.resource.machine.isLocal {
                     items.append(.separator())
-                    // A tab-specific row renames one view. A pool row with several
-                    // views has no single safe target, so expose the explicit
-                    // all-views operation. A detached zero-view resource has no
-                    // daemon tab to rename and keeps this item hidden.
-                    let canRename = CloudTreeOutlineView.canRenameTerminal(
-                        resource: row.resource,
-                        remoteView: row.remoteView
-                    )
-                    if canRename {
-                        let title = if row.remoteView == nil {
-                            String(localized: "cloudTree.menu.renameTerminalAllViews", defaultValue: "Rename all views\u{2026}")
-                        } else {
-                            String(localized: "cloudTree.menu.renameTerminal", defaultValue: "Rename\u{2026}")
-                        }
-                        items.append(item(title) { [nodeActions] in
-                            nodeActions.renameTerminal(row.resource, row.remoteView)
-                        })
-                    }
                     items.append(item(String(localized: "cloudTree.menu.killTerminal", defaultValue: "Kill Terminal\u{2026}")) { [nodeActions] in nodeActions.closeTerminal(row.resource.id) })
                 }
                 return items
             case .browser(let row):
-                return resourceMenuItems(
-                    row.resource,
-                    isLocal: row.resource.machine.isLocal,
-                    openAction: { [weak self] in self?.open(node) },
-                    remoteView: row.remoteView
-                )
-            case .display(let resource, let openIn, let remoteView):
-                return resourceMenuItems(
-                    resource,
-                    isLocal: false,
-                    openInLocalWorkspace: openIn,
-                    openAction: { [weak self] in self?.open(node) },
-                    remoteView: remoteView
-                )
-            case .port(let resource, let url, let openIn):
-                return resourceMenuItems(
-                    resource,
-                    isLocal: false,
-                    openInLocalWorkspace: openIn,
-                    openAction: { [weak self] in self?.open(node) },
-                    portURL: url
-                )
+                return resourceMenuItems(row.resource, isLocal: row.resource.machine.isLocal)
+            case .display(let resource, let openIn):
+                return resourceMenuItems(resource, isLocal: false, openInLocalWorkspace: openIn)
+            case .port(let resource, let url):
+                return resourceMenuItems(resource, isLocal: false, portURL: url)
             case .browsersGroup, .portsGroup:
                 return [
                     item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { [nodeActions] in nodeActions.refresh() },
@@ -726,53 +642,24 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             _ resource: SurfaceResource,
             isLocal: Bool,
             openInLocalWorkspace: UUID? = nil,
-            openAction: (@MainActor () -> Void)? = nil,
-            portURL: String? = nil,
-            remoteView: SurfaceRemoteView? = nil
+            portURL: String? = nil
         ) -> [NSMenuItem] {
             var items: [NSMenuItem] = [
                 item(String(localized: "cloudTree.menu.open", defaultValue: "Open")) { [nodeActions] in
-                    // Use the exact row-open path when the row supplies one. This
-                    // keeps context-menu opens in lockstep with click/Return even
-                    // if a refresh changes the catalog after the menu is built.
-                    if let openAction {
-                        openAction()
-                    } else if let openInLocalWorkspace {
-                        if let remoteView {
-                            nodeActions.projectRemoteViewInLocalWorkspace(resource.id, remoteView, openInLocalWorkspace)
-                        } else {
-                            nodeActions.projectInLocalWorkspace(resource.id, openInLocalWorkspace)
-                        }
-                    } else if let remoteView {
-                        nodeActions.projectRemoteView(resource.id, remoteView, .split, true)
+                    // Same scope rule as the row's open verb (one shared path).
+                    if let openInLocalWorkspace {
+                        nodeActions.projectInLocalWorkspace(resource.id, openInLocalWorkspace)
                     } else {
                         nodeActions.project(resource.id, .split, true)
                     }
                 },
-                item(String(localized: "cloudTree.menu.openInNewTab", defaultValue: "Open in New Tab")) { [nodeActions] in
-                    if let remoteView {
-                        nodeActions.projectRemoteView(resource.id, remoteView, .tab, true)
-                    } else {
-                        nodeActions.project(resource.id, .tab, true)
-                    }
-                },
+                item(String(localized: "cloudTree.menu.openInNewTab", defaultValue: "Open in New Tab")) { [nodeActions] in nodeActions.project(resource.id, .tab, true) },
             ]
             if !isLocal {
-                items.append(item(String(localized: "cloudTree.menu.openInNewPane", defaultValue: "Open in New Pane")) { [nodeActions] in
-                    if let remoteView {
-                        nodeActions.projectRemoteView(resource.id, remoteView, .split, false)
-                    } else {
-                        nodeActions.project(resource.id, .split, false)
-                    }
-                })
+                items.append(item(String(localized: "cloudTree.menu.openInNewPane", defaultValue: "Open in New Pane")) { [nodeActions] in nodeActions.project(resource.id, .split, false) })
             }
             items.append(.separator())
-            if resource.id.isForwardedPort, !isLocal {
-                // Copying a port URL does not start a forward. The browser's
-                // explicit Ports table owns local forwarding addresses.
-                items.append(item(String(localized: "cloudTree.menu.copyPrivateURL", defaultValue: "Copy Private Address URL")) { [nodeActions] in nodeActions.copyPortLink(resource.id) })
-                items.append(item(String(localized: "machines.menu.setupVPN", defaultValue: "Set Up cmux VPN…")) { [machineActions, window = outlineView?.window] in machineActions.setupVPN(window) })
-            } else if let portURL {
+            if let portURL {
                 items.append(item(String(localized: "cloudTree.menu.copyLink", defaultValue: "Copy Link")) { [nodeActions] in nodeActions.copyToPasteboard(portURL) })
             } else if let port = resource.port, resource.kind == .browser {
                 items.append(item(String(localized: "cloudTree.menu.copyPort", defaultValue: "Copy Port")) { [nodeActions] in nodeActions.copyToPasteboard(String(port)) })
@@ -804,7 +691,6 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             if let address = machine.privateAddress {
                 items.append(item(String(localized: "machines.menu.copyIPAddress", defaultValue: "Copy IP Address")) { [nodeActions] in nodeActions.copyToPasteboard(address) })
             }
-            items.append(item(String(localized: "machines.menu.privateNetwork", defaultValue: "Private Network Access…")) { [window = outlineView?.window] in actions.setupVPN(window) })
             items.append(item(String(localized: "machines.menu.status", defaultValue: "Status")) { actions.runCommand(id, ["vm", "status"]) })
             // Only verbs this provider can honor: a Checkpoint that answers 502 is not a verb.
             if machine.capabilities.snapshot {
@@ -818,16 +704,14 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             return items
         }
 
-        /// A running create can be cancelled immediately; a failed one offers
-        /// the same retry/dismiss verbs as its hover buttons plus the transcript.
+        /// A running create offers nothing but Refresh; a failed one offers the
+        /// same verbs as its hover buttons plus the transcript.
         private func pendingMachineMenuItems(_ operation: MachineCreateOperation) -> [NSMenuItem] {
             let create = machineActions.create
             let nodeActions = nodeActions
             let id = operation.id
             var items: [NSMenuItem] = []
-            if operation.isRunning {
-                items.append(item(String(localized: "machines.pending.cancel", defaultValue: "Cancel Create")) { create.cancel(id) })
-            } else {
+            if !operation.isRunning {
                 items.append(item(String(localized: "machines.pending.retry", defaultValue: "Retry Create")) { create.retry(id) })
                 items.append(item(String(localized: "machines.pending.showError", defaultValue: "Show Error\u{2026}")) { create.showFailure(id) })
                 items.append(item(String(localized: "machines.pending.copyError", defaultValue: "Copy Error")) { create.copyFailure(id) })
