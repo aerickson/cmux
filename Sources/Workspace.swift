@@ -708,7 +708,7 @@ extension Workspace {
                         hibernatedAt: $0.hibernatedAt.timeIntervalSince1970,
                         lastActivityAt: $0.lastActivityAt.timeIntervalSince1970
                     )
-                },
+                } : nil,
                 resumeBinding: localTmuxStartCommand == nil ? snapshotResumeBinding : nil,
                 textBoxDraft: terminalPanel.sessionTextBoxDraftSnapshot(),
                 isRemoteTerminal: activeRemoteTerminalSurfaceIds.contains(panelId),
