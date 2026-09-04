@@ -323,6 +323,15 @@ extension DockSplitStore {
             if let scrollback {
                 restoredTerminalScrollbackByPanelId[panelId] = scrollback
             }
+            let snapshotResumeBinding = SurfaceResumeBindingSnapshot.recoveredShellCommandBinding(
+                existing: resumeBinding,
+                restorableAgentExists: restorableAgent != nil,
+                shellActivityState: terminal.shellActivity.state,
+                automaticTitle: titleMetadata.title,
+                hasCustomTitle: titleMetadata.customTitle != nil,
+                scrollback: scrollback,
+                workingDirectory: directory
+            )
             let sessionFontSize: Float32?
             let sessionFontSizeChangeTokens: [UUID]?
             if let terminalFontSizeSnapshotProjection {
@@ -353,7 +362,7 @@ extension DockSplitStore {
                         lastActivityAt: $0.lastActivityAt.timeIntervalSince1970
                     )
                 } : nil,
-                resumeBinding: localTmuxStartCommand == nil ? resumeBinding : nil,
+                resumeBinding: localTmuxStartCommand == nil ? snapshotResumeBinding : nil,
                 managedAgentResumeBinding: localTmuxStartCommand == nil ? managedResumeBinding : nil,
                 textBoxDraft: terminal.sessionTextBoxDraftSnapshot(),
                 isRemoteTerminal: transfer?.isRemoteTerminal ?? false,
