@@ -16,6 +16,7 @@ BUNDLE_SET=0
 DERIVED_SET=0
 TAG=""
 LAUNCH=0
+KEEP_RUNNING=0
 CMUX_DEBUG_LOG=""
 CMUX_DEV_PORT=""
 CMUX_DEV_PORT_END=""
@@ -48,6 +49,25 @@ XCODEBUILD_OUTPUT_VALID=0
 XCODEBUILD_CLEANED_OUTPUTS=0
 CAN_PUBLISH_RELOAD_STATE=1
 RELOAD_PUBLICATION_SKIP_REASON=""
+
+terminate_tagged_app_after_build() {
+  if [[ "$KEEP_RUNNING" -eq 1 ]]; then
+    CAN_PUBLISH_RELOAD_STATE=0
+    RELOAD_PUBLICATION_SKIP_REASON="kept the existing tagged app and its discovery state running"
+    echo "Preserving running ${APP_NAME} instance (--keep-running)"
+    return 0
+  fi
+
+  /usr/bin/osascript -e "tell application id \"${BUNDLE_ID}\" to quit" >/dev/null 2>&1 || true
+  sleep 0.3
+  pkill -f "${APP_NAME}.app/Contents/MacOS/${BASE_APP_NAME}" || true
+  sleep 0.3
+  # Tagged --launch runs are handed off to launchd so they survive the terminal
+  # that invoked reload.sh. Remove a still-registered prior job only when the
+  # caller did not ask us to preserve the running instance.
+  /bin/launchctl bootout "$TAG_LAUNCHD_DOMAIN/$TAG_LAUNCHD_LABEL" >/dev/null 2>&1 || true
+  /bin/launchctl remove "$TAG_LAUNCHD_LABEL" >/dev/null 2>&1 || true
+}
 
 reload_socket_is_live() {
   local socket_path="$1"
@@ -875,6 +895,8 @@ Options:
                          so macOS launches the freshly-built binary on cmd-click or --launch.
   --launch               Launch the app after building. Without this flag, the script
                          builds and prints the app path but does not open it.
+  --keep-running         Do not terminate an existing same-tag app after the build.
+                         The rebuilt bundle takes effect on its next launch.
   --prod-auth            Point this tagged Debug build at production Stack auth,
                          cmux APIs, and the production Iroh broker.
   --credentials-file <path>
@@ -1121,6 +1143,10 @@ while [[ $# -gt 0 ]]; do
       LAUNCH=1
       shift
       ;;
+    --keep-running)
+      KEEP_RUNNING=1
+      shift
+      ;;
     --prod-auth)
       PROD_AUTH=1
       shift
@@ -1175,6 +1201,11 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+if [[ "$KEEP_RUNNING" -eq 1 && "$LAUNCH" -eq 1 ]]; then
+  echo "error: --keep-running cannot be combined with --launch" >&2
+  exit 1
+fi
 
 if [[ -z "$TAG" ]]; then
   echo "error: --tag is required (example: ./scripts/reload.sh --tag fix-sidebar-theme)" >&2
@@ -1769,23 +1800,17 @@ if [[ -n "${TAG_SLUG:-}" ]]; then
   TAG_LAUNCHD_DOMAIN="gui/$(id -u)"
 fi
 
-# Tag mode: always terminate the existing same-tag instance after a successful build,
-# even without --launch. A stale tagged app pinned to this bundle id would otherwise
-# keep running against freshly-overwritten resources, and macOS would foreground it
-# instead of launching the newly built binary when the user cmd-clicks the .app.
+# Tag mode normally terminates the existing same-tag instance after a successful
+# build. A stale tagged app pinned to this bundle id would otherwise keep running
+# against freshly-overwritten resources, and macOS would foreground it instead of
+# launching the newly built binary when the user cmd-clicks the app. Explicit
+# build-only callers can preserve that process and its discovery state.
 if [[ -n "$TAG" ]]; then
-  /usr/bin/osascript -e "tell application id \"${BUNDLE_ID}\" to quit" >/dev/null 2>&1 || true
-  sleep 0.3
-  pkill -f "${APP_NAME}.app/Contents/MacOS/${BASE_APP_NAME}" || true
-  sleep 0.3
-  # Tagged --launch runs are handed off to launchd so they survive the terminal or
-  # automation process that invoked reload.sh. Remove a still-registered prior job
-  # after giving the app a chance to quit gracefully.
-  /bin/launchctl bootout "$TAG_LAUNCHD_DOMAIN/$TAG_LAUNCHD_LABEL" >/dev/null 2>&1 || true
-  /bin/launchctl remove "$TAG_LAUNCHD_LABEL" >/dev/null 2>&1 || true
+  terminate_tagged_app_after_build
 fi
 
-if [[ -n "$TAG" ]] && ! wait_for_tag_socket_lock_release "/tmp/cmux-debug-${TAG_SLUG}.sock"; then
+if [[ "$CAN_PUBLISH_RELOAD_STATE" -eq 1 && -n "$TAG" ]] \
+    && ! wait_for_tag_socket_lock_release "/tmp/cmux-debug-${TAG_SLUG}.sock"; then
   CAN_PUBLISH_RELOAD_STATE=0
 fi
 if [[ "$CAN_PUBLISH_RELOAD_STATE" -eq 1 && -n "${TAG_SLUG:-}" ]]; then

@@ -152,13 +152,15 @@ test("reload keep-running mode preserves an already-running same-name app", asyn
 
   try {
     await new Promise((resolve) => setTimeout(resolve, 100));
-    const script = `${taggedAppTerminationSource()}\nKEEP_RUNNING=1\nAPP_NAME="$1"\nBASE_APP_NAME="cmux DEV"\nBUNDLE_ID="com.cmuxterm.app"\nterminate_tagged_app_after_build\n`;
+    const script = `${taggedAppTerminationSource()}\nKEEP_RUNNING=1\nCAN_PUBLISH_RELOAD_STATE=1\nRELOAD_PUBLICATION_SKIP_REASON=""\nAPP_NAME="$1"\nBASE_APP_NAME="cmux DEV"\nBUNDLE_ID="com.cmuxterm.app"\nterminate_tagged_app_after_build\nprintf 'publish=%s\\nreason=%s\\n' "$CAN_PUBLISH_RELOAD_STATE" "$RELOAD_PUBLICATION_SKIP_REASON"\n`;
     const result = spawnSync(
       "bash",
       ["-c", script, "reload-keep-running-test", appName],
       { cwd: repoRoot, encoding: "utf8" },
     );
     assert.equal(result.status, 0, result.stderr || result.stdout);
+    assert.match(result.stdout, /publish=0/);
+    assert.match(result.stdout, /reason=kept the existing tagged app/);
     assert.doesNotThrow(() => process.kill(runningApp.pid, 0));
   } finally {
     runningApp.kill("SIGTERM");
