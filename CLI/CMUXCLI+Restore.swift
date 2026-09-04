@@ -67,7 +67,6 @@ extension CMUXCLI {
             )
         }
         var record = try restoreRecord(from: rawRecord)
-        let surfaceRecordCheckpointID = record.checkpointID
         if let expectedKind = selector.kind, expectedKind != record.kind {
             throw loggedRestoreError(
                 stage: "record.kind-mismatch",
@@ -125,49 +124,45 @@ extension CMUXCLI {
             }
         }
 
+        // Legacy command-only records predate structured launch captures, but
+        // an agent-hook Codex record still names a mutable surface owner. Claim
+        // that generation before handing the shell command to exec so an
+        // intervening child publication cannot steal the restore.
+        if codexRestoreBindingRequiresClaim(record),
+           record.launchCommand == nil,
+           record.preparedArguments == nil,
+           record.legacyCommand != nil,
+           !claimCodexRestoreBinding(
+               record: record,
+               bindingPayload: bindingPayload,
+               surfaceID: params["surface_id"] as? String,
+               client: client
+           ) {
+            try handleRejectedCodexRestore(
+                .bindingChanged,
+                record: record,
+                bindingPayload: bindingPayload,
+                surfaceID: params["surface_id"] as? String,
+                workspaceID: payload["workspace_id"] as? String
+                    ?? processEnvironment["CMUX_WORKSPACE_ID"],
+                client: client,
+                workingDirectoryBeforeRestore: workingDirectoryBeforeRestore
+            )
+            return
+        }
+
         let environment = processEnvironment.merging(record.environment) { _, restored in
             restored
         }
         if record.launchCommand == nil,
            record.preparedArguments == nil,
            let legacyCommand = record.legacyCommand {
-            let admissionClaim = try requireRestoreLaunchAdmission(
+            try execLegacyRestoreRecord(
+                legacyCommand,
                 record: record,
-                recordSessionID: surfaceRecordCheckpointID,
-                restorePayload: payload,
+                environment: environment,
                 client: client
             )
-            if codexRestoreBindingRequiresClaim(record),
-               !claimCodexRestoreBinding(
-                   record: record,
-                   bindingPayload: bindingPayload,
-                   surfaceID: params["surface_id"] as? String,
-                   client: client
-               ) {
-                releaseRestoreLaunchAdmission(admissionClaim, client: client)
-                try handleRejectedCodexRestore(
-                    .bindingChanged,
-                    record: record,
-                    bindingPayload: bindingPayload,
-                    surfaceID: params["surface_id"] as? String,
-                    workspaceID: payload["workspace_id"] as? String
-                        ?? processEnvironment["CMUX_WORKSPACE_ID"],
-                    client: client,
-                    workingDirectoryBeforeRestore: workingDirectoryBeforeRestore
-                )
-                return
-            }
-            do {
-                try execLegacyRestoreRecord(
-                    legacyCommand,
-                    record: record,
-                    environment: environment,
-                    client: client
-                )
-            } catch {
-                releaseRestoreLaunchAdmission(admissionClaim, client: client)
-                throw error
-            }
         }
 
         guard let mode = AgentRestoreRequestMode(rawValue: record.mode) else {
@@ -211,12 +206,6 @@ extension CMUXCLI {
             ambientEnvironment: processEnvironment
         ) else {
             if let legacyCommand = record.legacyCommand {
-                let admissionClaim = try requireRestoreLaunchAdmission(
-                    record: record,
-                    recordSessionID: surfaceRecordCheckpointID,
-                    restorePayload: payload,
-                    client: client
-                )
                 if codexRestoreBindingRequiresClaim(record),
                    !claimCodexRestoreBinding(
                        record: record,
@@ -224,7 +213,6 @@ extension CMUXCLI {
                        surfaceID: params["surface_id"] as? String,
                        client: client
                    ) {
-                    releaseRestoreLaunchAdmission(admissionClaim, client: client)
                     try handleRejectedCodexRestore(
                         .bindingChanged,
                         record: record,
@@ -237,17 +225,12 @@ extension CMUXCLI {
                     )
                     return
                 }
-                do {
-                    try execLegacyRestoreRecord(
-                        legacyCommand,
-                        record: record,
-                        environment: environment,
-                        client: client
-                    )
-                } catch {
-                    releaseRestoreLaunchAdmission(admissionClaim, client: client)
-                    throw error
-                }
+                try execLegacyRestoreRecord(
+                    legacyCommand,
+                    record: record,
+                    environment: environment,
+                    client: client
+                )
             }
             throw loggedRestoreError(
                 stage: "record.incomplete",
@@ -259,48 +242,36 @@ extension CMUXCLI {
             )
         }
 
-        let admissionClaim = try requireRestoreLaunchAdmission(
-            record: record,
-            recordSessionID: surfaceRecordCheckpointID,
-            restorePayload: payload,
-            client: client
-        )
-        do {
-            for preflight in invocation.preflightInvocations {
-                try runRestorePreflight(
-                    preflight,
-                    appliedWorkingDirectory: effectiveWorkingDirectory
-                )
-            }
-            if codexRestoreBindingRequiresClaim(record),
-               !claimCodexRestoreBinding(
-                   record: record,
-                   bindingPayload: bindingPayload,
-                   surfaceID: params["surface_id"] as? String,
-                   client: client
-               ) {
-                releaseRestoreLaunchAdmission(admissionClaim, client: client)
-                try handleRejectedCodexRestore(
-                    .bindingChanged,
-                    record: record,
-                    bindingPayload: bindingPayload,
-                    surfaceID: params["surface_id"] as? String,
-                    workspaceID: payload["workspace_id"] as? String
-                        ?? processEnvironment["CMUX_WORKSPACE_ID"],
-                    client: client,
-                    workingDirectoryBeforeRestore: workingDirectoryBeforeRestore
-                )
-                return
-            }
-            client.close()
-            try execRestoreInvocation(
-                invocation,
+        for preflight in invocation.preflightInvocations {
+            try runRestorePreflight(
+                preflight,
                 appliedWorkingDirectory: effectiveWorkingDirectory
             )
-        } catch {
-            releaseRestoreLaunchAdmission(admissionClaim, client: client)
-            throw error
         }
+        if codexRestoreBindingRequiresClaim(record),
+           !claimCodexRestoreBinding(
+               record: record,
+               bindingPayload: bindingPayload,
+               surfaceID: params["surface_id"] as? String,
+               client: client
+           ) {
+            try handleRejectedCodexRestore(
+                .bindingChanged,
+                record: record,
+                bindingPayload: bindingPayload,
+                surfaceID: params["surface_id"] as? String,
+                workspaceID: payload["workspace_id"] as? String
+                    ?? processEnvironment["CMUX_WORKSPACE_ID"],
+                client: client,
+                workingDirectoryBeforeRestore: workingDirectoryBeforeRestore
+            )
+            return
+        }
+        client.close()
+        try execRestoreInvocation(
+            invocation,
+            appliedWorkingDirectory: effectiveWorkingDirectory
+        )
     }
 
     func currentRestoreSurfaceID(
