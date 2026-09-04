@@ -235,16 +235,28 @@ extension DockSplitStore {
         guard let terminalSnapshot = snapshot.terminal else { return nil }
         let policy = Workspace.makeSessionRestorePolicyService()
         let localTmuxStartCommand = policy.localTmuxStartCommand(terminalSnapshot.tmuxStartCommand)
+        let persistedResumeBinding = localTmuxStartCommand == nil
+            ? SurfaceResumeBindingSnapshot.recoveredShellCommandBinding(
+                existing: terminalSnapshot.resumeBinding,
+                restorableAgentExists: terminalSnapshot.agent != nil,
+                shellActivityState: .unknown,
+                automaticTitle: snapshot.title,
+                hasCustomTitle: snapshot.customTitle != nil,
+                scrollback: terminalSnapshot.scrollback,
+                workingDirectory: terminalSnapshot.workingDirectory ?? snapshot.directory,
+                allowAutomaticTitleFallback: true
+            )
+            : nil
         let restorableAgent = localTmuxStartCommand == nil
             ? Workspace.restorableAgentForSessionRestore(
                 terminalSnapshot.agent,
-                resumeBinding: terminalSnapshot.resumeBinding
+                resumeBinding: persistedResumeBinding
             )
             : nil
         let hibernation = restorableAgent != nil ? terminalSnapshot.hibernation : nil
         let resumeBinding = localTmuxStartCommand == nil
             ? Workspace.resumeBindingForSessionRestore(
-                terminalSnapshot.resumeBinding,
+                persistedResumeBinding,
                 restorableAgent: restorableAgent
             )
             : nil
