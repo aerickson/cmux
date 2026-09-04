@@ -67,6 +67,15 @@ function markerDerivationSource() {
   return source.slice(start, end + 2);
 }
 
+function taggedAppTerminationSource() {
+  const source = fs.readFileSync(reloadScript, "utf8");
+  const start = source.indexOf("terminate_tagged_app_after_build() {");
+  const end = source.indexOf("\n}\n", start);
+  assert.notEqual(start, -1, "reload.sh must expose its tagged-app termination behavior");
+  assert.notEqual(end, -1, "reload.sh tagged-app termination behavior must be complete");
+  return source.slice(start, end + 2);
+}
+
 function writeExecutable(filePath, contents) {
   fs.writeFileSync(filePath, contents, { mode: 0o755 });
   fs.chmodSync(filePath, 0o755);
@@ -131,6 +140,31 @@ printf '%s\\n%s\\n' "$CMUX_RELOAD_MARKER_NAME" "$CMUX_RELOAD_TMP_MARKER"
   );
   assert.equal(result.status, 0, result.stderr || result.stdout);
   assert.equal(result.stdout, "last-socket-path\n/tmp/cmux-last-socket-path\n");
+});
+
+test("reload keep-running mode preserves an already-running same-name app", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "cmux-reload-keep-running-"));
+  const appName = `cmux AJE ${crypto.randomUUID()}`;
+  const executable = path.join(root, `${appName}.app`, "Contents", "MacOS", "cmux DEV");
+  fs.mkdirSync(path.dirname(executable), { recursive: true });
+  writeExecutable(executable, "#!/bin/sh\ntrap 'exit 0' TERM INT\nwhile :; do sleep 1; done\n");
+  const runningApp = spawn(executable, [], { stdio: "ignore" });
+
+  try {
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    const script = `${taggedAppTerminationSource()}\nKEEP_RUNNING=1\nAPP_NAME="$1"\nBASE_APP_NAME="cmux DEV"\nBUNDLE_ID="com.cmuxterm.app"\nterminate_tagged_app_after_build\n`;
+    const result = spawnSync(
+      "bash",
+      ["-c", script, "reload-keep-running-test", appName],
+      { cwd: repoRoot, encoding: "utf8" },
+    );
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    assert.doesNotThrow(() => process.kill(runningApp.pid, 0));
+  } finally {
+    runningApp.kill("SIGTERM");
+    await once(runningApp, "exit").catch(() => {});
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test("reload pointer publication waits for the shared ownership lock", async () => {
