@@ -361,7 +361,7 @@ extension DockSplitStore {
                         hibernatedAt: $0.hibernatedAt.timeIntervalSince1970,
                         lastActivityAt: $0.lastActivityAt.timeIntervalSince1970
                     )
-                } : nil,
+                },
                 resumeBinding: localTmuxStartCommand == nil ? snapshotResumeBinding : nil,
                 managedAgentResumeBinding: localTmuxStartCommand == nil ? managedResumeBinding : nil,
                 textBoxDraft: terminal.sessionTextBoxDraftSnapshot(),
