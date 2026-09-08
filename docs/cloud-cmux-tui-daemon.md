@@ -261,7 +261,7 @@ Socket methods (the CLI, the sidebar tree, and agents all go through them):
 | `vm.terminal_open` | `{id, terminal_id, workspace_id?, placement?, focus?}` | `{surface_id, workspace_id, reused}` — `workspace_id` is the local target; an existing pane showing the terminal is focused instead of duplicated |
 | `vm.terminal_new` | `{id, workspace_id?: ws_…, command?: [string], cwd?, name?, open?}` | `{terminal_id, workspace_id, surface_id?}` — a detached terminal in the machine's session |
 | `vm.desktop_open` | `{id, workspace_id?, focus?}` | `{surface_id, url}` |
-| `vm.port_open` | `{id, port, workspace_id?}` | `{surface_id, url}` |
+| `vm.port_open` | `{id, port, workspace_id?}` | `{surface_id, url, private_url}`: `url` is the link the pane loads: the loopback forward (works from any app on this Mac), or, for a machine without a private address, the control plane's preview URL, `private_url` the machine's `http://<private ip>:<port>` |
 | `vm.link_socket` | `{id}` | `{socket_path, session}` — the headless link's local mux socket |
 
 CLI addresses are the tree's lines: `cmux vm tree`, then
