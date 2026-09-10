@@ -23,8 +23,7 @@ def verify_launch(command, ready, forbidden, timeout):
     """Read PTY output until readiness, an exit, cancellation, or the deadline."""
     child, master = pty.fork()
     if child == 0:
-        os.chdir(os.environ["HOME"])
-        os.execvpe("/bin/bash", ["bash", "-lc", command], os.environ)
+        os.execvpe("/bin/bash", ["bash", "-lic", command], os.environ)
     fcntl.ioctl(master, termios.TIOCSWINSZ, struct.pack("HHHH", 40, 140, 0, 0))
     deadline = time.monotonic() + timeout
     output = b""
