@@ -117,6 +117,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                         "session": "cloud",
                         "trusted_carrier": true,
                         "wireguard_hub_socket": "/tmp/cmux-wg-test.sock",
+                        "trusted_carrier": true,
                     ]
                 )
             case "workspace.create":
