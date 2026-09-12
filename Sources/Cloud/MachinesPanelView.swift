@@ -81,34 +81,37 @@ struct MachinesPanelView: View {
     @ViewBuilder
     private var authenticatedContent: some View {
         controlBar
-        Button {
-            AppDelegate.shared?.openCloudVPNSetupWorkspace(preferredTabManager: tabManager)
-        } label: {
-            HStack(spacing: 8) {
-                Image(systemName: "network")
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(tunnelStatus.status?.state == .up
-                        ? String(localized: "cloud.vpn.setup.title", defaultValue: "Cloud VPN")
-                        : String(localized: "machines.menu.setupVPN", defaultValue: "Set Up cmux VPN…"))
-                        .cmuxFont(size: 12, weight: .medium)
-                    Text(String(localized: "cloud.vpn.setup.entry.subtitle", defaultValue: "Optional private IP access for other apps"))
-                        .cmuxFont(size: 11)
-                        .foregroundStyle(.secondary)
+        if tunnelStatus.status?.state != .up {
+            Button {
+                AppDelegate.shared?.openCloudVPNSetupWorkspace(preferredTabManager: tabManager)
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "network")
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(tunnelStatus.status?.state == .up
+                            ? String(localized: "cloud.vpn.setup.title", defaultValue: "Cloud VPN")
+                            : String(localized: "machines.menu.setupVPN", defaultValue: "Set Up cmux VPN…"))
+                            .cmuxFont(size: 12, weight: .medium)
+                        Text(String(localized: "cloud.vpn.setup.entry.subtitle", defaultValue: "Optional private IP access for other apps"))
+                            .cmuxFont(size: 11)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer(minLength: 0)
+                    Image(systemName: "chevron.right").font(.system(size: 10))
                 }
-                Spacer(minLength: 0)
-                Image(systemName: "chevron.right").font(.system(size: 10))
+                .padding(.horizontal, 12)
+                .padding(.vertical, 9)
+                .contentShape(Rectangle())
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 9)
-            .contentShape(Rectangle())
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("CloudVPNSetupEntryButton")
         }
-        .buttonStyle(.plain)
-        .accessibilityIdentifier("CloudVPNSetupEntryButton")
-        if let banner = tunnelStatus.banner {
+        if let banner = tunnelStatus.banner, banner.showsInMachinesPanel {
             MachinesTunnelBanner(banner: banner, backgroundColor: chromeBackgroundColor) {
                 SystemExtensionSettingsLink.open()
             }
         }
+
         if let plan = viewModel.plan, !plan.isPaidPlan, let text = plan.freeAccessBannerText {
             MachinesFreeAccessBanner(
                 text: text,
@@ -154,6 +157,7 @@ struct MachinesPanelView: View {
                     }
                     .foregroundColor(.orange.opacity(0.9))
                     .help(viewModel.lastErrorDescription ?? "")
+                    .cloudErrorCopyMenu(viewModel.lastErrorDescription)
                 } else if let treeError = viewModel.treeErrorDescription {
                     // The message itself, not a generic label: a failed tree verb (New
                     // Terminal Here, Open Shell, …) otherwise reads as a dead menu item,
@@ -168,6 +172,7 @@ struct MachinesPanelView: View {
                     }
                     .foregroundColor(.orange.opacity(0.9))
                     .help(treeError)
+                    .cloudErrorCopyMenu(treeError)
                 } else if let plan = viewModel.plan {
                     MachinePlanMeter(plan: plan)
                 }
@@ -470,7 +475,7 @@ struct MachinesPanelView: View {
             onWillMutate: { [weak viewModel] label in viewModel?.beginOperation(label) },
             onDidMutate: { [weak viewModel] in viewModel?.endOperation() },
             onFailure: { [weak viewModel] description in viewModel?.noteTreeFailure(description) },
-            refresh: { [weak viewModel] in viewModel?.refresh(tree: true) }
+            refresh: { [weak viewModel] in viewModel?.refresh(tree: true) }, refreshMachine: { [weak viewModel] in viewModel?.refreshMachine($0) }
         )
         return CloudTreeOutlineView(
             machines: viewModel.machines,
@@ -553,6 +558,7 @@ struct MachinesPanelView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityIdentifier("CloudMachinesEmptyState")
+        .cloudErrorCopyMenu(viewModel.lastErrorDescription)
     }
 
     /// Free plans: "Upgrade to use more than 1 machine" — the ceiling plus the
@@ -835,7 +841,7 @@ struct MachineRowActions {
         onCompletion: ((CloudVMActionLauncher.Completion) -> Void)? = nil,
         onCancellationReady: ((CloudVMActionLauncher.CancellationHandle) -> Void)? = nil
     ) -> Bool {
-        // `vm new` mints a fresh machine with its own persistent home and
+        // `vm new` mints a fresh machine with an ephemeral home and
         // attaches it; the base slot stays reachable via the ＋ menu's Open Base.
         let socketPath = TerminalController.shared.activeSocketPath(
             preferredPath: SocketControlSettings.socketPath()
@@ -871,11 +877,12 @@ struct MachineRowActions {
             presentOutputOnSuccess: presentOutputOnSuccess,
             onCancellationReady: onCancellationReady,
             onCompletion: { completion in
-            if completion.terminationStatus == 0 {
-                onSuccess?()
+                if completion.terminationStatus == 0 {
+                    onSuccess?()
+                }
+                onDidMutate()
             }
-            onDidMutate()
-        })
+        )
     }
 
     @MainActor
