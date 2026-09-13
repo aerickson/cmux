@@ -1,0 +1,12 @@
+schema_version: 1
+id: 20260711-debugging-junk
+branch: 20260711-debugging-junk
+title: 20260711-debugging-junk
+summary: ''
+disposition: active
+selection:
+  enabled: false
+source:
+  remote: origin
+  ref: refs/remotes/origin/20260711-debugging-junk
+  sha: f83f079c25f6a428ad02da6229f1602629072ba5
