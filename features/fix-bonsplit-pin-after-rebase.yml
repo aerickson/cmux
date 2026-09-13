@@ -1,0 +1,12 @@
+schema_version: 1
+id: fix-bonsplit-pin-after-rebase
+branch: fix/bonsplit-pin-after-rebase
+title: fix/bonsplit-pin-after-rebase
+summary: ''
+disposition: active
+selection:
+  enabled: false
+source:
+  remote: origin
+  ref: refs/remotes/origin/fix/bonsplit-pin-after-rebase
+  sha: 4aca0f83758f3eb0ff0d13f6bfbbe214f231c524
