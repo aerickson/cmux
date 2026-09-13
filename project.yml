@@ -1,0 +1,19 @@
+schema_version: 1
+project:
+  name: unknown
+repositories:
+  source: unknown
+  fork: unknown
+remotes:
+  source: origin
+  upstream: upstream
+  fork: origin
+branches:
+  base: main
+  integration: INTEGRATION
+  published: main
+  metadata: gbit-metadata
+filters:
+  exclude:
+  - zzz-*
+  - pri-*
