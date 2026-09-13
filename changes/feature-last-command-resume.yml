@@ -5,7 +5,7 @@ title: feature/last-command-resume
 summary: ''
 disposition: active
 selection:
-  enabled: false
+  enabled: true
 source:
   remote: origin
   ref: refs/remotes/origin/feature/last-command-resume
