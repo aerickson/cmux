@@ -5,7 +5,7 @@ title: feature/workspace-move-to-bottom
 summary: ''
 disposition: active
 selection:
-  enabled: false
+  enabled: true
 source:
   remote: origin
   ref: refs/remotes/origin/feature/workspace-move-to-bottom
