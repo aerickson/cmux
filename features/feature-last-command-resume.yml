@@ -1,0 +1,12 @@
+schema_version: 1
+id: feature-last-command-resume
+branch: feature/last-command-resume
+title: feature/last-command-resume
+summary: ''
+disposition: active
+selection:
+  enabled: false
+source:
+  remote: origin
+  ref: refs/remotes/origin/feature/last-command-resume
+  sha: dc1b978ce873a16eaf71f3b4cc894e0008cb81c3
