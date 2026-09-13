@@ -1,0 +1,12 @@
+schema_version: 1
+id: 20260912-docs
+branch: 20260912-docs
+title: 20260912-docs
+summary: ''
+disposition: active
+selection:
+  enabled: false
+source:
+  remote: origin
+  ref: refs/remotes/origin/20260912-docs
+  sha: cee5e954662e6e730dbe2cf27c682ccd89e547c3
