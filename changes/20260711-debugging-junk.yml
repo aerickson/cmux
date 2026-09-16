@@ -10,3 +10,5 @@ source:
   remote: origin
   ref: refs/remotes/origin/20260711-debugging-junk
   sha: f83f079c25f6a428ad02da6229f1602629072ba5
+parent: main
+base_sha: ff4428f343f41dc431c830acb1fdd256f393dd4d
