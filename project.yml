@@ -11,7 +11,7 @@ remotes:
 branches:
   base: main
   integration: fork-integration
-  published: main
+  published: fork-release
   metadata: gbit-metadata
 filters:
   exclude:
