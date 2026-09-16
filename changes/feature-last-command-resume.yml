@@ -9,6 +9,6 @@ selection:
 source:
   remote: origin
   ref: refs/remotes/origin/feature/last-command-resume
-  sha: 2fcbaec8a602f54bf5d38609211665b1f4bcaf3a
+  sha: 1918db5863e384ec01b72f81666845446073a136
 parent: main
 base_sha: 01cfdeccc5dba00af509d3c601dfdce2096ef537
