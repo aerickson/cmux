@@ -9,6 +9,6 @@ selection:
 source:
   remote: origin
   ref: refs/remotes/origin/tooling/aje-justfile
-  sha: a8ea0c1bab56bceb70f5633d7ee2ed74205c68b0
+  sha: 7f27341bc53f8e6fcddcb4d67cdccd750ccb66e0
 parent: main
 base_sha: 01cfdeccc5dba00af509d3c601dfdce2096ef537
