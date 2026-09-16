@@ -1,5 +1,0 @@
-schema_version: 1
-base: main
-integration: INTEGRATION
-published: main
-source_remote: origin
