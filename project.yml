@@ -10,7 +10,7 @@ remotes:
   fork: origin
 branches:
   base: main
-  integration: INTEGRATION
+  integration: fork-integration
   published: main
   metadata: gbit-metadata
 filters:
