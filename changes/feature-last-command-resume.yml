@@ -11,4 +11,4 @@ source:
   ref: refs/remotes/origin/feature/last-command-resume
   sha: 1918db5863e384ec01b72f81666845446073a136
 parent: main
-base_sha: 01cfdeccc5dba00af509d3c601dfdce2096ef537
+base_sha: 4c67b4d8c59bc395ba2b75dc66bd688e5b846a6d
