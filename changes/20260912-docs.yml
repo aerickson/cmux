@@ -9,6 +9,6 @@ selection:
 source:
   remote: origin
   ref: refs/remotes/origin/20260912-docs
-  sha: 3a72ab459a88c5d4952698cc95c7505a6ae9ef65
+  sha: cf11b83be3853b39cb18b9e4c5b40aeb979310b9
 parent: main
 base_sha: 4c67b4d8c59bc395ba2b75dc66bd688e5b846a6d
